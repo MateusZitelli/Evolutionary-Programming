@@ -1,0 +1,2 @@
+all:
+	gcc evo.c -g -o evo.bin -O2 -lm
