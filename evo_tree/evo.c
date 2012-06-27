@@ -1,13 +1,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#define POP_SIZE 10000
+#define POP_SIZE 5000
 #define MAX_TREE_SIZE 200
-#define INPUT_SIZE 26
+#define INPUT_SIZE 10
 #define SELECTEDS_PER_GEN 10
-#define MUTATE_TAX 0.01
-#define CROSS_TAX 0.1
+#define MUTATE_TAX 0.005
+#define CROSS_TAX 0.4
+#define DESIRED_MAX_SIZE 10
 
+float INPUT[INPUT_SIZE];
+float DESIRED_OUTPUT[INPUT_SIZE];
+
+float MAX_ERROR;
 /*Defined opps
   ITR | args | ID | CMT
   (+) -  2  -  0  |  -
@@ -51,9 +56,10 @@ struct node
 {
   int type;
   float data;
-  float *input;
-  struct node *sons;
-  struct node *dad;
+  struct tree * my_tree;
+  struct node *children;
+  struct node *next;
+  /* struct node *parent; */
   int init;
 };
 
@@ -74,10 +80,9 @@ void set_tree_size ();
 void mutate ();
 
 void
-print_tree (struct node *n)
+print_tree2 (struct node *n)
 {
-  if (n == NULL)
-    return;
+  if(n == NULL) return;
   switch (n->type)
     {
     case 0:
@@ -99,21 +104,25 @@ print_tree (struct node *n)
       printf ("(mod ");
       break;
     case 6:
-      printf ("%f", n->data);
+      printf ("%0.3f", n->data);
       break;
     case 7:
-      printf ("X");
+      printf ("x");
       break;
     }
   int i;
-  int size = get_type_arg_qnt (n->type);
-  for (i = 0; i < size - 1; i++)
+
+  int args = get_type_arg_qnt (n->type) ;
+  struct node * cur_node = n->children;
+  for (i = 0; i < args - 2; i++)
     {
-      print_tree (&n->sons[i]);
+      print_tree2 (cur_node);
       printf (" ");
+      cur_node = cur_node->next;
     }
-  if (size > 0)
-    print_tree (&n->sons[size - 1]);
+  if (args > 0)
+    print_tree2 (cur_node->next);
+
   switch (n->type)
     {
     case 0:
@@ -137,10 +146,65 @@ print_tree (struct node *n)
     }
 }
 
+void
+print_tree (struct node *n)
+{
+  if(n == NULL) return;
+  switch (n->type)
+    {
+    case 0:
+      printf("(");
+      print_tree(n->children);
+      printf (" + ");
+      print_tree(n->children->next);
+      printf(")");
+      break;
+    case 1:
+      printf("(");
+      print_tree(n->children);
+      printf (" - ");
+      print_tree(n->children->next);
+      printf(")");
+      break;
+    case 2: 
+      printf("(");
+      print_tree(n->children);
+      printf (" * ");
+      print_tree(n->children->next);
+      printf(")");
+      break;
+    case 3:
+      printf("(");
+      print_tree(n->children);
+      printf (" / ");
+      print_tree(n->children->next);
+      printf(")");
+      break;
+    case 4:
+      printf (" sqrt(");
+      print_tree(n->children);
+      printf(") ");
+      break;
+    case 5:
+      printf("(");
+      print_tree(n->children);
+      printf (" mod ");
+      print_tree(n->children->next);
+      printf(")");
+      break;
+    case 6:
+      printf ("%0.3f", n->data);
+      break;
+    case 7:
+      printf ("x");
+      break;
+    }
+}
+
 float
 get_rand_data ()
 {
-  return rand () % 10 / 10.0 * DATA_RANGE;
+  return (rand () % 10 / 10.0 - 0.5) * DATA_RANGE;
 }
 
 float
@@ -150,65 +214,66 @@ run (struct node *n)
   switch (n->type)
     {
     case 0:
-      if(n->sons[0].type == 6 && n->sons[1].type == 6){
+      if(n->children->type == 6 && n->children->next->type == 6){
 	n->type = 6;
-	n->data = n->sons[0].data + n->sons[1].data;
+	n->data = n->children->data + n->children->next->data;
 	return n->data;
       }
-      return run (&n->sons[0]) + run (&n->sons[1]);
+      return run (n->children) + run (n->children->next);
     case 1:
-      if(n->sons[0].type == 6 && n->sons[1].type == 6){
+      if(n->children->type == 6 && n->children->next->type == 6){
 	n->type = 6;
-	n->data = n->sons[0].data - n->sons[1].data;
+	n->data = n->children->data - n->children->next->data;
 	return n->data;
       }
-      return run (&n->sons[0]) - run (&n->sons[1]);
+      return run (n->children) - run (n->children->next);
     case 2:
-      if(n->sons[0].type == 6 && n->sons[1].type == 6){
+      if(n->children->type == 6 && n->children->next->type == 6){
 	n->type = 6;
-	n->data = n->sons[0].data * n->sons[1].data;
+	n->data = n->children->data * n->children->next->data;
 	return n->data;
       }
-      return run (&n->sons[0]) * run (&n->sons[1]);
+      return run (n->children) * run (n->children->next);
     case 3:
-      if(n->sons[0].type == 6 && n->sons[1].type == 6){
+      if(n->children->type == 6 && n->children->next->type == 6){
 	n->type = 6;
-	if(n->sons[1].data == 0)
+	if(n->children->next->data == 0)
 	  return 0;
-	n->data = n->sons[0].data / n->sons[1].data;
+	n->data = n->children->data / n->children->next->data;
 	return n->data;
       }
-      arg1 = run (&n->sons[1]);
+      arg1 = run (n->children->next);
       if (arg1 == 0)
 	return 0;
-      return run (&n->sons[0]) / arg1;
+      return run (n->children) / arg1;
     case 4:
-      if(n->sons[0].type == 6){
-	if(n->sons[0].data < 0)
+      if(n->children->type == 6){
+	if(n->children->data < 0)
 	  return 0;
 	n->type = 6;
-	n->data = sqrt(n->sons[0].data);
+	n->data = sqrt(n->children->data);
       }
-      arg = run (&n->sons[0]);
+      arg = run (n->children);
       if (arg < 0)
 	return 0;
       return sqrt (arg);
     case 5:
-      if(n->sons[0].type == 6 && n->sons[1].type == 6){
+      return 0;
+      if(n->children->type == 6 && n->children->next->type == 6){
 	n->type = 6;
-	if((int) n->sons[1].data == 0)
+	if((int) n->children->next->data <= 0)
 	  return 0;
-	n->data = (int) n->sons[0].data % (int) n->sons[1].data;
+	n->data = (int) n->children->data % (int) n->children->next->data;
 	return n->data;
       }
-      arg1 = (int) run (&n->sons[1]);
-      if ((int) arg1 == 0)
+      arg1 = (int) run (n->children->next);
+      if ((int) arg1 <= 0)
 	return 0;
-      return (int) run (&n->sons[0]) % (int) arg1;
+      return (int) run (n->children) % (int) arg1;
     case 6:
       return n->data;
     case 7:
-      return *n->input;
+      return n->my_tree->input;
     }
 }
 
@@ -216,12 +281,14 @@ void
 set_tree_size (struct tree *t, struct node *an)
 {
   ++t->size;
-  if (an == NULL)
+  if (an->children == NULL)
     return;
   int i;
-  for (i = 0; i < get_type_arg_qnt (an->type); i++)
+  struct node * cur_node = an->children;
+  for (i = 0; cur_node != NULL; i++)
     {
-      set_tree_size (t, &an->sons[i]);
+      set_tree_size (t, cur_node);
+      cur_node = cur_node->next;
     }
 }
 
@@ -233,24 +300,19 @@ run_tree (struct tree *t, float input)
 }
 
 float
-get_fitness (struct tree *t, float input[], float desired_output[])
+get_fitness (struct tree *t)
 {
   int i = 0;
   float difsum = 0;
+  float diff;
+  if(t->fitness != -1) return t->fitness;
   for (i = 0; i < INPUT_SIZE; i++)
     {
-      float diff = run_tree (t, input[i]) - desired_output[i];
-      //printf("%f\n", diff);
-      diff = diff * diff;
-      if (diff > 50 * 50)
-	diff = 50 * 50;
-      difsum += diff;
+      diff = run_tree (t, INPUT[i]) - DESIRED_OUTPUT[i];
+      difsum += sqrt(diff * diff);
     }
-  difsum = 50 * INPUT_SIZE - sqrt (difsum);
-  t->size = 0;
-  set_tree_size(t, &t->root);
-  float size_corrector = t->size < 10? 1 : 10.0 / (t->size);
-  t->fitness = difsum * size_corrector / (50 * INPUT_SIZE);
+  difsum = (difsum / INPUT_SIZE + 1) * (t->size > 20? (t->size - 20) : 1 );
+  t->fitness = difsum;
   return t->fitness;
 }
 
@@ -272,44 +334,32 @@ init ()
 }
 
 void
-recursive_random_generator (struct tree *t, struct node *actual_node,
-			    int node_type, struct node *dad)
+recursive_random_generator (struct tree *t, struct node * node)
 {
-  //node_type = -1 - first node | 0 - opp | 1 - data | 2 - input
+  int opp, i, arguments;
   if(rand() % 2){
-    set_node(actual_node, rand() % 6, dad, t);
+    opp = rand() % 6;
   }else{
-    actual_node->data = get_rand_data();
-    set_node(actual_node, rand() % 2 + 6, dad, t);
+    node->data = get_rand_data();
+    opp = rand() % 2 + 6;
   }
-}
-
-int
-set_node (struct node *n, int opp, struct node *dad, struct tree *t)
-{
-  int i;
-  n->type = opp;
-  n->dad = dad;
-  n->input = &t->input;
-  int arguments = get_type_arg_qnt(n->type);
-  if(arguments == 0) return 0;
-  n->sons = (struct node *) malloc (sizeof (struct node) * arguments);
-  n->init = 1;
-  for (i = 0; i < arguments; i++)
+  node->type = opp;
+  node->my_tree = t;
+  arguments = get_type_arg_qnt(node->type);
+  node->children = (struct node *) malloc(sizeof(struct node));
+  struct node * cur_node = node->children;
+  for (i = 0; i < arguments; cur_node = cur_node->next, i++)
     {
-      recursive_random_generator (t, &n->sons[i], rand () % 3, n);
+      cur_node = (struct node *) malloc(sizeof(struct node));
+      recursive_random_generator (t, cur_node);
     }
-  return 0;
 }
 
 void
 create_random_tree (struct tree *t)
 {
-  recursive_random_generator (t, &t->root, -1, NULL);
+  recursive_random_generator (t, &t->root);
 }
-
-
-
 
 void
 create_sorted (int n, struct tree *input_list, struct tree **sorted)
@@ -323,9 +373,9 @@ create_sorted (int n, struct tree *input_list, struct tree **sorted)
     {
       for (j = 0; j < n; j++)
 	{
-	  if (sorted[j]->fitness < input_list[i].fitness)
+	  if (get_fitness(sorted[j]) > get_fitness(&input_list[i]))
 	    {
-	      for (k = n - 1; k > j + 1; k--)
+	      for (k = n - 1; k > j; k--)
 		{
 		  sorted[k] = sorted[k - 1];
 		}
@@ -337,145 +387,160 @@ create_sorted (int n, struct tree *input_list, struct tree **sorted)
 }
 
 void
-copy_node (struct node *n, struct node *r, struct tree *t, struct tree *tr)
+copy_sub_tree (struct node * source, struct node * destination, struct tree * destination_tree)
 {
-  r->sons = (struct node *) malloc(get_type_arg_qnt(n->type) * sizeof(struct node));
-  
+  destination->type = source->type;
+  destination->data = source->data;
+  destination->my_tree = destination_tree;
+  struct node * cur_dest, * cur_source;
+  for(cur_dest=destination->children, cur_source = source->children; cur_source != NULL; cur_dest=cur_dest->next, cur_source = cur_source->next){
+    cur_dest = (struct node *) malloc(sizeof(struct node));
+    copy_sub_tree(cur_source, cur_dest, destination_tree);
+  }
 }
 
 void clear_tree(struct node * node){
   int i;
-  if(get_type_arg_qnt(node->type) == 0 || node->sons == NULL) return;
-  for(i = 0; i < get_type_arg_qnt(node->type);i++){
-    clear_tree(&node->sons[i]);
-  }
-  free(node->sons);
-  node->sons = NULL;
+  struct node * n;
+  for (n=node->children; n!=NULL; n=n->next)
+    clear_tree(n);
+
+  free(node->children);
+  node->children = NULL;
+  free(node);
 }
 void
 copy_tree (struct tree *t, struct tree *receiver)
 {
   clear_tree(&receiver->root);
-  copy_node (&t->root, &receiver->root, t, receiver);
+  copy_sub_tree (&t->root, &receiver->root, t);
   receiver->fitness = t->fitness;
 }
 
-
-void
-mutate_recursive (struct node *n, struct tree *t)
-{
-  int last_args = get_type_arg_qnt (n->type);
+void get_node(struct node * sel, struct node * n, int num, int * an){
+  int pos = 0;
+  if(*an == num){
+    *sel = *n;
+    return;
+  }
+  ++*an;
   int i;
-  if (rand () % 100000 / 100000.0 < MUTATE_TAX)
-    {
-      //Case node represents datum, the datum or the function can be mutated
-      if (n->type == 6)
-	{
-	  if (rand () % 2)
-	    {
-	      n->type = rand () % 8;
-	    }
-	  else
-	    {
-	      n->data = get_rand_data ();
-	    }
-	}
-      else
-	{
-	  n->type = rand () % 8;
-	}
-    }
-  if(n->sons != NULL)
-    for (i = 0; i < last_args; i++)
-      mutate_recursive (&n->sons[i], t);
-  int args = get_type_arg_qnt (n->type);
-  if (args > last_args)
-    {
-      struct node *tmp =
-	(struct node *) malloc (sizeof (struct node) * last_args);
-      for (i = 0; i < last_args; i++)
-	{
-	  tmp[i] = n->sons[i];
-	}
-      free (n->sons);
-      n->sons = NULL;
-      n->sons = (struct node *) malloc (sizeof (struct node) * args);
-      for (i = 0; i < last_args; i++)
-	{
-	  n->sons[i] = tmp[i];
-	}
-      free (tmp);
-
-      for (i = last_args; i < args; i++)
-	{
-	  set_node (&n->sons[i], rand () % 8, n, t);
-	}
-    }
-
-}
-
-void
-mutate_tree (struct tree *t)
-{
-  mutate_recursive (&t->root, t);
-}
-
-struct node * get_node(struct node * n, int num, int * an){
-  if(++(*an) == num){
-    return n;
-  }else{
-    int i;
-    for(i = 0; i < get_type_arg_qnt(n->type);i++){
-      return get_node(&n->sons[i], num, an);
-    }
+  struct node * cur_node;
+  for(cur_node=n->children; cur_node == NULL;cur_node=cur_node->next){
+    get_node(sel, cur_node, num, an);
   }
 }
 
-void cross_recursive(struct node * n, struct tree * t, struct tree * t2){
+
+
+void mutate_tree(struct tree * t){
+  int an = 0;
+  int i;
+
+  if(rand() % 100000 / 100000.0 < MUTATE_TAX){
+    set_tree_size(t, &t->root);
+    struct node * n_mut = (struct node *) malloc(sizeof(struct node *));
+    get_node(n_mut, &t->root, rand() % t->size, &an);
+    int before_args = get_type_arg_qnt(n_mut->type);
+    if (n_mut->type == 6)
+      {
+	if (rand () % 2)
+	  {
+	    n_mut->type = rand () % 8;
+	  }
+	else
+	  {
+	    n_mut->data = get_rand_data ();
+	  }
+      }
+    else
+      {
+	n_mut->type = rand () % 8;
+      }
+    int after_args = get_type_arg_qnt(n_mut->type);
+    struct node * cur_node;
+    if(after_args > before_args){
+      for(cur_node = n_mut->children; cur_node != NULL; cur_node=cur_node->next);
+      for(i = before_args; i < after_args; i++){
+	recursive_random_generator(t, cur_node);
+	cur_node=cur_node->next;
+      }
+    }else if(after_args < before_args){
+      cur_node = n_mut->children;
+      for(i = 0,cur_node = n_mut->children; i < before_args; i++,cur_node=cur_node->next);
+      for(i = after_args; i < before_args; i++){
+	clear_tree(cur_node);
+	cur_node = cur_node->next;
+      }
+    }
+  }
+  set_tree_size(t, &t->root);
+}
+
+void cross_recursive(struct tree * t, struct tree * t2){
   int i;
   if(rand () % 100000 / 100000.0 < CROSS_TAX){
     int an = 0;
-    set_tree_size(t2, &t2->root);
-    struct node * n2 = get_node(&t2->root, rand() % t2->size, &an);
-    //copy_node(n2, n, t2, t);
-  }
-  for(i = 0; i < get_type_arg_qnt(n->type); i++){
-    cross_recursive(&n->sons[i], t, t2);
+    struct node * n, * n2, * tmp;
+    get_node(n2, &t2->root, rand() % t2->size , &an);
+    an = 0;
+    get_node(n, &t->root, rand() % t->size, &an);
+    if(n == NULL || n2 == NULL) return;
+    clear_tree(n);
+    copy_node(n2, n, t2, t);
   }
 }
 
 void cross_tree(struct tree * t, struct tree * t2){
-  cross_recursive(&t->root, t, t2);
+  t2->size = 0;
+  t->size = 0;
+  set_tree_size(t, &t->root);
+  set_tree_size(t2, &t2->root);
+  cross_recursive(t, t2);
+  t->size = 0;
+  set_tree_size(t, &t->root);
 }
 
 int
 main ()
 {
   init ();
+  FILE *fp;
+  fp=fopen("./data.csv", "w");
   int i, j, k;
-  float input[INPUT_SIZE];
-  for (i = 0; i < INPUT_SIZE; i++)
-    input[i] = i;
-  float output[INPUT_SIZE] =  {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101};    
-  for (k = 0; k < 3000; k++)
+  for (i = 0; i < INPUT_SIZE; i++){
+    INPUT[i] = i;
+  }
+  DESIRED_OUTPUT[0] = 0;
+  DESIRED_OUTPUT[1] = 1;
+  for(i = 2; i < INPUT_SIZE; i++){
+    DESIRED_OUTPUT[i] = DESIRED_OUTPUT[i - 1] + DESIRED_OUTPUT[i - 2];
+  }
+  MAX_ERROR = 0;
+  for(i = 0; i < INPUT_SIZE; i++){
+    MAX_ERROR += sqrt((INPUT[i] - DATA_RANGE / 2.0) *  (INPUT[i] - DATA_RANGE / 2.0));
+  }
+  MAX_ERROR /= INPUT_SIZE;
+  struct tree *selected_trees =
+    (struct tree *) malloc (sizeof (struct tree) * SELECTEDS_PER_GEN);
+  struct tree **sorted =
+    (struct tree **) malloc (sizeof (struct tree *) * 10);
+  struct tree **roullete =
+    (struct tree **) malloc (sizeof (struct tree *) * 50);
+  for (k = 0; k < 300; k++)
     {
       for (i = 0; i < POP_SIZE; i++)
 	{
-	  get_fitness (&trees_vector[i], input, output);
+	  trees_vector[i].fitness = -1;
 	}
-      struct tree **roullete =
-	(struct tree **) malloc (sizeof (struct tree *) * 50);
       int roullete_pos = 0;
-      int n = 10;
-      struct tree **sorted =
-	(struct tree **) malloc (sizeof (struct tree *) * n);
-      create_sorted (n, trees_vector, sorted);
+      create_sorted (10, trees_vector, sorted);
       float fitness_sum = 0;
-      for (i = 0; i < n; i++)
+      for (i = 0; i < 10; i++)
 	{
 	  fitness_sum += sorted[i]->fitness;
 	}
-      for (i = 0; i < n; i++)
+      for (i = 0; i < 10; i++)
 	{
 	  for (j = 0;
 	       j < (sorted[i]->fitness) / fitness_sum * 50 && roullete_pos < 50;
@@ -486,29 +551,31 @@ main ()
 	}
       struct tree *selected_trees =
 	(struct tree *) malloc (sizeof (struct tree) * SELECTEDS_PER_GEN);
-      for(i = 0; i < SELECTEDS_PER_GEN; i++) selected_trees[i].root.sons = NULL;
       roullete_pos = rand () % 50;
       printf ("Selecteds:\n");
       for (i = 0; i < SELECTEDS_PER_GEN; i++)
 	{
 	  copy_tree (roullete[roullete_pos], &selected_trees[i]);
 	  roullete_pos = (roullete_pos + 50 / SELECTEDS_PER_GEN) % 50;
+	  printf("####GEN CODE####\n");
 	  print_tree(&selected_trees[i].root);
-	  printf(" -> %f", trees_vector[i].fitness);
+	  printf(" -> %f\n OUTPUT >> ", selected_trees[i].fitness);
+	  for(j = 0; j < 10; j++){
+	    printf("%f ", run_tree(&selected_trees[i], j));
+	  }
 	  printf("\n");
 	}
+      printf("################\n\n");
       for(i = 0; i < POP_SIZE; i++){
-	//copy_tree(&selected_trees[rand() % SELECTEDS_PER_GEN], &trees_vector[i]);
+	copy_tree(&selected_trees[rand() % SELECTEDS_PER_GEN], &trees_vector[i]);
 	mutate_tree(&trees_vector[i]);
 	cross_tree(&trees_vector[i], &selected_trees[rand() % SELECTEDS_PER_GEN]);
 	//print_tree(&trees_vector[i].root);
 	//printf("\n");
       }
-      //clear_tree(&selected_trees[0].root);
-      free(selected_trees);
-      free(sorted);
-      free(roullete);
-      printf("\n\n");
     }
+  free(selected_trees);
+  free(sorted);
+  free(roullete);
   return 0;
 }
